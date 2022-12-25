@@ -55,7 +55,7 @@ type PodTable struct {
 
 func initPodTable(db *memory.Database, informer cache.SharedIndexInformer) {
 	if podTable != nil {
-		endpointLog.Warn("podTable name is empty")
+		podLog.Warn("podTable name is empty")
 		return
 	}
 	podTable = &PodTable{
@@ -75,7 +75,7 @@ func createPodTable(db *memory.Database) *memory.Table {
 		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: podTableName},
 	}), db.GetForeignKeyCollection())
 	db.AddTable(podTableName, table)
-	endpointLog.Infof("table [%s] created", podTableName)
+	podLog.Infof("table [%s] created", podTableName)
 	return table
 }
 

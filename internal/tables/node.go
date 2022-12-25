@@ -55,7 +55,7 @@ type NodeTable struct {
 
 func initNodeTable(db *memory.Database, informer cache.SharedIndexInformer) {
 	if nodeTable != nil {
-		nodeLog.Warn("endpointTable name is empty")
+		nodeLog.Warn("nodeTable name is empty")
 		return
 	}
 	nodeTable = &NodeTable{
@@ -114,20 +114,20 @@ func (t *NodeTable) Update(ctx *sql.Context, oldNode, newNode *v1.Node) error {
 }
 
 func onAddNode(o interface{}) {
-	endpoints := o.(*v1.Node)
-	nodeLog.Debugf("adding endpoint: %s\n", endpoints.Name)
+	node := o.(*v1.Node)
+	nodeLog.Debugf("adding node: %s\n", node.Name)
 	ctx := sql.NewEmptyContext()
-	if err := nodeTable.Insert(ctx, endpoints); err != nil {
+	if err := nodeTable.Insert(ctx, node); err != nil {
 		fmt.Printf("%v\n", err)
 		nodeLog.Error(err)
 	}
 }
 
 func onDelNode(o interface{}) {
-	endpoints := o.(*v1.Node)
-	nodeLog.Debugf("deleting endpoint: %s\n", endpoints.Name)
+	node := o.(*v1.Node)
+	nodeLog.Debugf("deleting node: %s\n", node.Name)
 	ctx := sql.NewEmptyContext()
-	if err := nodeTable.Delete(ctx, endpoints); err != nil {
+	if err := nodeTable.Delete(ctx, node); err != nil {
 		nodeLog.Error(err)
 	}
 }
@@ -135,7 +135,7 @@ func onDelNode(o interface{}) {
 func onUpdateNode(oldObj interface{}, newObj interface{}) {
 	old := oldObj.(*v1.Node)
 	new := newObj.(*v1.Node)
-	nodeLog.Debugf("updating endpoint: %s\n", old.Name)
+	nodeLog.Debugf("updating node: %s\n", old.Name)
 
 	ctx := sql.NewEmptyContext()
 	if err := nodeTable.Update(ctx, old, new); err != nil {
