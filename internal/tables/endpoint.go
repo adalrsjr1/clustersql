@@ -14,12 +14,16 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+const endpointTableName = "Endpoint"
+
 var (
 	endpointTable *EndpointTable
-	endpointLog   = logrus.StandardLogger()
+	endpointLog   = logrus.WithFields(
+		logrus.Fields{
+			"table": endpointTableName,
+		},
+	)
 )
-
-const endpointTableName = "Endpoint"
 
 func StartEndpointInformer(ctx context.Context, db *memory.Database) {
 
@@ -33,7 +37,7 @@ func StartEndpointInformer(ctx context.Context, db *memory.Database) {
 
 	// start to sync and call list
 	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("Timed out waiting for caches to sync"))
+		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 		return
 	}
 

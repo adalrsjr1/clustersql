@@ -14,12 +14,16 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+const containerTableName = "Container"
+
 var (
 	containerTable *ContainerTable
-	containerLog   = logrus.StandardLogger()
+	containerLog   = logrus.WithFields(
+		logrus.Fields{
+			"table": containerTableName,
+		},
+	)
 )
-
-const containerTableName = "Container"
 
 func StartContainerInformer(ctx context.Context, db *memory.Database) {
 	factory := informers.NewSharedInformerFactory(services.Clientset, 0)
@@ -31,7 +35,7 @@ func StartContainerInformer(ctx context.Context, db *memory.Database) {
 
 	// start to sync and call list
 	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("Timed out waiting for caches to sync"))
+		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 		return
 	}
 
@@ -66,7 +70,7 @@ func initContainertable(db *memory.Database, informer cache.SharedIndexInformer)
 
 func createContainerTable(db *memory.Database) *memory.Table {
 	table := memory.NewTable(containerTableName, sql.NewPrimaryKeySchema(sql.Schema{
-		{Name: "id", Type: sql.Text, Nullable: false, Source: containerTableName},
+		{Name: "pod_uid", Type: sql.Text, Nullable: false, Source: containerTableName},
 		{Name: "pod", Type: sql.Text, Nullable: false, Source: containerTableName},
 		{Name: "namespace", Type: sql.Text, Nullable: false, Source: containerTableName},
 		{Name: "container", Type: sql.Text, Nullable: false, Source: containerTableName},

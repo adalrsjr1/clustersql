@@ -14,12 +14,16 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+const nodeTableName = "Node"
+
 var (
 	nodeTable *NodeTable
-	nodeLog   = logrus.StandardLogger()
+	nodeLog   = logrus.WithFields(
+		logrus.Fields{
+			"table": nodeTableName,
+		},
+	)
 )
-
-const nodeTableName = "Node"
 
 func StartNodeInformer(ctx context.Context, db *memory.Database) {
 
@@ -33,7 +37,7 @@ func StartNodeInformer(ctx context.Context, db *memory.Database) {
 
 	// start to sync and call list
 	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("Timed out waiting for caches to sync"))
+		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 		return
 	}
 

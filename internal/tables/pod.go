@@ -14,12 +14,16 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
+const podTableName = "Pod"
+
 var (
 	podTable *PodTable
-	podLog   = logrus.StandardLogger()
+	podLog   = logrus.WithFields(
+		logrus.Fields{
+			"table": podTableName,
+		},
+	)
 )
-
-const podTableName = "Pod"
 
 func StartPodInformer(ctx context.Context, db *memory.Database) {
 	factory := informers.NewSharedInformerFactory(services.Clientset, 0)
@@ -32,7 +36,7 @@ func StartPodInformer(ctx context.Context, db *memory.Database) {
 
 	// start to sync and call list
 	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("Timed out waiting for caches to sync"))
+		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 		return
 	}
 
@@ -67,7 +71,7 @@ func initPodTable(db *memory.Database, informer cache.SharedIndexInformer) {
 
 func createPodTable(db *memory.Database) *memory.Table {
 	table := memory.NewTable(podTableName, sql.NewPrimaryKeySchema(sql.Schema{
-		{Name: "id", Type: sql.Text, Nullable: false, Source: podTableName, PrimaryKey: true},
+		{Name: "uid", Type: sql.Text, Nullable: false, Source: podTableName, PrimaryKey: true},
 		{Name: "name", Type: sql.Text, Nullable: false, Source: podTableName, PrimaryKey: true},
 		{Name: "namespace", Type: sql.Text, Nullable: false, Source: podTableName},
 		{Name: "node", Type: sql.Text, Nullable: false, Source: podTableName},
