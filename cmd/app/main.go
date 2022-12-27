@@ -36,6 +36,7 @@ func main() {
 		))
 
 	go tb.StartAffinityInformer(informersCtx, db)
+	go tb.StartNodeAffinityInformer(informersCtx, db)
 	// go tb.StartNodeMetricsInformer(informersCtx, db)
 	// go tb.StartPodMetricsInformer(informersCtx, db)
 	// go tb.StartPodInformer(informersCtx, db)
