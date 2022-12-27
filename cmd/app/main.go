@@ -35,12 +35,13 @@ func main() {
 			information_schema.NewInformationSchemaDatabase(),
 		))
 
-	go tb.StartPodInformer(informersCtx, db)
-
-	// TEST pod x endpoint: SELECT Pods.name AS pod, Endpoints.name AS endpoint, Pods.ip AS pod_ip , Endpoints.ip AS endpoint_IP FROM Pods LEFT JOIN Endpoints ON Pods.ip=Endpoints.ip ORDER BY Pods.name, Endpoints.name ASC
-	go tb.StartEndpointInformer(informersCtx, db)
-	go tb.StartNodeInformer(informersCtx, db)
-	go tb.StartContainerInformer(informersCtx, db)
+	// go tb.StartNodeMetricsInformer(informersCtx, db)
+	go tb.StartPodMetricsInformer(informersCtx, db)
+	// go tb.StartPodInformer(informersCtx, db)
+	// // // TEST pod x endpoint: SELECT Pods.name AS pod, Endpoints.name AS endpoint, Pods.ip AS pod_ip , Endpoints.ip AS endpoint_IP FROM Pods LEFT JOIN Endpoints ON Pods.ip=Endpoints.ip ORDER BY Pods.name, Endpoints.name ASC
+	// go tb.StartEndpointInformer(informersCtx, db)
+	// go tb.StartNodeInformer(informersCtx, db)
+	// go tb.StartContainerInformer(informersCtx, db)
 	config := server.Config{
 		Protocol: "tcp",
 		Address:  fmt.Sprintf("%s:%d", address, port),

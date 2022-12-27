@@ -6,6 +6,7 @@ require (
 	github.com/dolthub/go-mysql-server v0.14.0
 	k8s.io/api v0.26.0
 	k8s.io/apimachinery v0.26.0
+	k8s.io/metrics v0.26.0
 )
 
 require (

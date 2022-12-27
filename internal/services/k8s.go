@@ -8,12 +8,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	// metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
+	metricsv "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 var (
-	Clientset kubernetes.Interface
-	// clientsetVS *metricsv.Clientset
+	Clientset   kubernetes.Interface
+	ClientsetVS *metricsv.Clientset
 )
 
 func StartKubernetes() {
@@ -43,9 +43,9 @@ func StartKubernetes() {
 		log.Errorf("error getting kubernetes clientset :%v")
 	}
 
-	// clientsetVS, err = metricsv.NewForConfig(kubeConfig)
-	// if err != nil {
-	// 	log.Errorf("error getting kubernetes metricsv :%v")
-	// }
+	ClientsetVS, err = metricsv.NewForConfig(kubeConfig)
+	if err != nil {
+		log.Errorf("error getting kubernetes metricsv :%v")
+	}
 
 }
