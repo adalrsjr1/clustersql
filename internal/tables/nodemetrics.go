@@ -80,9 +80,9 @@ func createNodeMetricsTable(db *memory.Database) *memory.Table {
 		{Name: "name", Type: sql.Text, Nullable: false, Source: nodeMetricsTableName},
 		{Name: "namespace", Type: sql.Text, Nullable: false, Source: nodeMetricsTableName},
 		{Name: "window", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "node_memory", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "node_cpu", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "node_disk", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
+		{Name: "usage_memory", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
+		{Name: "usage_cpu", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
+		{Name: "usage_disk", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
 		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: nodeMetricsTableName},
 	}), db.GetForeignKeyCollection())
 	db.AddTable(nodeMetricsTableName, table)
