@@ -43,6 +43,7 @@ func main() {
 	go tb.StartEndpointInformer(informersCtx, db)
 	go tb.StartNodeInformer(informersCtx, db)
 	go tb.StartContainerInformer(informersCtx, db)
+	go tb.StartTrafficInformer(informersCtx, db)
 	config := server.Config{
 		Protocol: "tcp",
 		Address:  fmt.Sprintf("%s:%d", address, port),

@@ -3,6 +3,7 @@ package tables
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/adalrsjr1/sqlcluster/internal/services"
 	"github.com/dolthub/go-mysql-server/memory"
@@ -74,6 +75,8 @@ func createPodTable(db *memory.Database) *memory.Table {
 		{Name: "uid", Type: sql.Text, Nullable: false, Source: podTableName, PrimaryKey: true},
 		{Name: "name", Type: sql.Text, Nullable: false, Source: podTableName, PrimaryKey: true},
 		{Name: "namespace", Type: sql.Text, Nullable: false, Source: podTableName},
+		{Name: "application", Type: sql.Text, Nullable: false, Source: podTableName},
+		{Name: "deployment", Type: sql.Text, Nullable: false, Source: podTableName},
 		{Name: "node", Type: sql.Text, Nullable: false, Source: podTableName},
 		{Name: "ip", Type: sql.Text, Nullable: false, Source: podTableName},
 		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: podTableName},
@@ -92,7 +95,14 @@ func (t *PodTable) Insert(ctx *sql.Context, pod *v1.Pod) error {
 }
 
 func podRow(pod *v1.Pod) sql.Row {
-	return sql.NewRow(string(pod.UID), pod.Name, pod.Namespace, pod.Spec.NodeName, pod.Status.PodIP, pod.CreationTimestamp.Time)
+	name := pod.Name
+	tokens := strings.Split(name, "-")
+	deploymentName := strings.Join(tokens[:len(tokens)-2], "-")
+
+	labels := pod.GetLabels()
+	app := labels["app"]
+
+	return sql.NewRow(string(pod.UID), pod.Name, pod.Namespace, app, deploymentName, pod.Spec.NodeName, pod.Status.PodIP, pod.CreationTimestamp.Time)
 }
 
 func (t *PodTable) Delete(ctx *sql.Context, pod *v1.Pod) error {
