@@ -58,7 +58,7 @@ const (
 
 var (
 	trafficTable *TrafficTable
-	promURL      = "http://localhost:9090"
+	PromURL      string
 
 	trafficLog = logrus.WithFields(
 		logrus.Fields{
@@ -147,7 +147,7 @@ func queryMetrics(ctx context.Context) {
 			trafficLog.Debugf(">>> %s: %s\n", metrics[i], query)
 			go func(metricName, query string) {
 				defer wg.Done()
-				u, err := url.Parse(fmt.Sprintf("%s/api/v1/query", promURL))
+				u, err := url.Parse(fmt.Sprintf("%s/api/v1/query", PromURL))
 				if err != nil {
 					trafficLog.Warn(err)
 				}

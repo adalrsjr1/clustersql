@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 
 	"github.com/adalrsjr1/sqlcluster/internal/services"
@@ -22,6 +23,10 @@ var (
 )
 
 func main() {
+
+	flag.StringVar(&tb.PromURL, "promURL", "http://prometheus.istio-system:9090", "the URL of the Prometheus server -- http://localhost:9090")
+	flag.Parse()
+
 	logrus.SetLevel(logrus.DebugLevel)
 	informersCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()

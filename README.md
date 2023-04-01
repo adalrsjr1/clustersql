@@ -11,6 +11,12 @@ visualize with your cluster, this project has something to offer.
 This project was possible thanks to
 [go-mysql-server](https://github.com/dolthub/go-mysql-server) project.
 
+### Dependencies
+
+* Istio
+* Kubernetes Metrics Server
+* Prometheus
+
 ### Scope of this project
 
 * Be a convenient SQL-based component on observability stacks to slice and dice
