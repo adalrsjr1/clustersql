@@ -35,7 +35,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	services.StartKubernetes()
+	if err := services.StartKubernetes(); err != nil {
+		log.WithError(err).Fatal("error to start kubernetes clients")
+	}
 
 	db := memory.NewDatabase(dbName)
 	dbProvider := sql.NewDatabaseProvider(db, information_schema.NewInformationSchemaDatabase())
@@ -50,8 +52,7 @@ func main() {
 
 	s, err := server.NewDefaultServer(config, engine)
 	if err != nil {
-		log.WithError(err).Error("error creating server")
-		return
+		log.WithError(err).Fatal("error creating server")
 	}
 
 	go func() {
@@ -64,8 +65,7 @@ func main() {
 	}()
 
 	if err = s.Start(); err != nil {
-		log.WithError(err).Error("error starting server")
-		return
+		log.WithError(err).Fatal("error starting server")
 	}
 
 }

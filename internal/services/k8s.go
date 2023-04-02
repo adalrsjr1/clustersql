@@ -1,6 +1,7 @@
 package services
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -14,18 +15,19 @@ import (
 var (
 	Clientset   kubernetes.Interface
 	ClientsetVS *metricsv.Clientset
+	log         = logrus.New().WithField("pkg", "services")
 )
 
-func StartKubernetes() {
-	log := logrus.StandardLogger()
+func StartKubernetes() error {
 	var kubeConfig *rest.Config
 	inClusterConfig, err := rest.InClusterConfig()
 	kubeConfig = inClusterConfig
+
 	if err != nil {
-		log.Warnf("failed to connect whitin the cluster, fallback to use homedir config")
+		log.WithError(err).Warnf("failed to connect whitin the cluster, fallback to use homedir config")
 		userHomeDir, err := os.UserHomeDir()
 		if err != nil {
-			log.Errorf("error getting user home dir: %s : %v\n", userHomeDir, err)
+			return fmt.Errorf("error getting .kube at %s: %w", userHomeDir, err)
 		}
 
 		kubeConfigPath := filepath.Join(userHomeDir, ".kube", "config")
@@ -33,19 +35,20 @@ func StartKubernetes() {
 
 		homeConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 		if err != nil {
-			log.Errorf("error getting Kubernetes config at %s: %v", kubeConfigPath, err)
+			return fmt.Errorf("error getting Kubernetes config at %s: %w", kubeConfigPath, err)
 		}
 		kubeConfig = homeConfig
 	}
 
 	Clientset, err = kubernetes.NewForConfig(kubeConfig)
 	if err != nil {
-		log.Errorf("error getting kubernetes clientset :%v")
+		return fmt.Errorf("error getting kubernetes clientset: %w", err)
 	}
 
 	ClientsetVS, err = metricsv.NewForConfig(kubeConfig)
 	if err != nil {
-		log.Errorf("error getting kubernetes metricsv :%v")
+		return fmt.Errorf("error getting kubernetes metricvs: %w", err)
 	}
 
+	return nil
 }
