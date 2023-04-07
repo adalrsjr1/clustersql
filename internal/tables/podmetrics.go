@@ -2,100 +2,104 @@ package tables
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
-	"github.com/adalrsjr1/sqlcluster/internal/services"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/sirupsen/logrus"
-	v1 "k8s.io/api/core/v1"
 
 	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/util/runtime"
+
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/metrics/pkg/apis/metrics/v1beta1"
 )
 
-const podMetricsTableName = "Pod_Metrics"
+// func StartPodMetricsInformer(ctx context.Context, db *memory.Database) {
+// 	watchList := cache.NewListWatchFromClient(services.ClientsetVS.MetricsV1beta1().RESTClient(),
+// 		"pods", v1.NamespaceAll, fields.Everything())
 
-var (
-	podMetricsTable *PodMetricsTable
-	podMetricsLog   = logrus.WithFields(
-		logrus.Fields{
-			"table": podMetricsTableName,
-		},
-	)
-)
+// 	_, informer := cache.NewInformer(
+// 		watchList,
+// 		&v1beta1.PodMetrics{},
+// 		0,
+// 		cache.ResourceEventHandlerFuncs{
+// 			AddFunc:    onAddPodMetrics,
+// 			UpdateFunc: onUpdatePodMetrics,
+// 			DeleteFunc: onDelPodMetrics,
+// 		},
+// 	)
+
+// 	defer runtime.HandleCrash()
+
+// 	initPodMetricsTable(db, informer)
+// 	go informer.Run(ctx.Done())
+// 	// start to sync and call list
+// 	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
+// 		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
+// 		return
+// 	}
+
+// 	<-ctx.Done()
+// }
 
 func StartPodMetricsInformer(ctx context.Context, db *memory.Database) {
-	watchList := cache.NewListWatchFromClient(services.ClientsetVS.MetricsV1beta1().RESTClient(),
-		"pods", v1.NamespaceAll, fields.Everything())
 
-	_, informer := cache.NewInformer(
-		watchList,
-		&v1beta1.PodMetrics{},
-		0,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc:    onAddPodMetrics,
-			UpdateFunc: onUpdatePodMetrics,
-			DeleteFunc: onDelPodMetrics,
-		},
-	)
+	// informerConstructor := func(factory informers.SharedInformerFactory) cache.SharedIndexInformer {
+	// 	return factory.Core().V1().Pods().Informer()
+	// }
 
-	defer runtime.HandleCrash()
+	// startResourceInformer(ctx, db, informerConstructor, initPodTable, onAddPod, onUpdatePod, onDelPod)
+	startMetricsInformer(ctx, db, &v1beta1.PodMetrics{}, "pods", initPodMetricsTable, onAddPodMetrics, onUpdatePodMetrics, onDelPodMetrics)
 
-	initPodMetricsTable(db, informer)
-	go informer.Run(ctx.Done())
-	// start to sync and call list
-	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
-		return
-	}
-
-	<-ctx.Done()
 }
 
 type PodMetricsTable struct {
-	db       *memory.Database
-	table    *memory.Table
-	informer cache.Controller
+	db     *memory.Database
+	table  *memory.Table
+	logger *logrus.Entry
 }
 
-func initPodMetricsTable(db *memory.Database, informer cache.Controller) {
-	if podMetricsTable != nil {
-		podMetricsLog.Warn("table name is empty")
-		return
-	}
-	podMetricsTable = &PodMetricsTable{
-		db:       db,
-		table:    createPodMetricsTable(db),
-		informer: informer,
+func initPodMetricsTable(db *memory.Database) {
+	if _, ok := tables[PodMetricsTableName]; !ok {
+		tables[PodMetricsTableName] = &PodTable{
+			db:     db,
+			table:  createPodMetricsTable(db),
+			logger: tableLogger(PodMetricsTableName),
+		}
 	}
 
 }
 
 func createPodMetricsTable(db *memory.Database) *memory.Table {
-	table := memory.NewTable(podMetricsTableName, sql.NewPrimaryKeySchema(sql.Schema{
-		{Name: "pod", Type: sql.Text, Nullable: false, Source: podMetricsTableName},
-		{Name: "container", Type: sql.Text, Nullable: false, Source: podMetricsTableName},
-		{Name: "namespace", Type: sql.Text, Nullable: false, Source: podMetricsTableName},
-		{Name: "window", Type: sql.Int64, Nullable: false, Source: podMetricsTableName},
-		{Name: "usage_memory", Type: sql.Int64, Nullable: false, Source: podMetricsTableName},
-		{Name: "usage_cpu", Type: sql.Int64, Nullable: false, Source: podMetricsTableName},
-		{Name: "usage_disk", Type: sql.Int64, Nullable: false, Source: podMetricsTableName},
-		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: podMetricsTableName},
+	table := memory.NewTable(PodMetricsTableName, sql.NewPrimaryKeySchema(sql.Schema{
+		{Name: "pod", Type: sql.Text, Nullable: false, Source: PodMetricsTableName},
+		{Name: "container", Type: sql.Text, Nullable: false, Source: PodMetricsTableName},
+		{Name: "namespace", Type: sql.Text, Nullable: false, Source: PodMetricsTableName},
+		{Name: "window", Type: sql.Int64, Nullable: false, Source: PodMetricsTableName},
+		{Name: "usage_memory", Type: sql.Int64, Nullable: false, Source: PodMetricsTableName},
+		{Name: "usage_cpu", Type: sql.Int64, Nullable: false, Source: PodMetricsTableName},
+		{Name: "usage_disk", Type: sql.Int64, Nullable: false, Source: PodMetricsTableName},
+		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: PodMetricsTableName},
 	}), db.GetForeignKeyCollection())
-	db.AddTable(podMetricsTableName, table)
-	podMetricsLog.Infof("table [%s] created", podMetricsTableName)
+
+	db.AddTable(PodMetricsTableName, table)
+	log.Infof("table [%s] created", PodMetricsTableName)
 	return table
 }
 
-func (t *PodMetricsTable) Drop(ctx *sql.Context) error {
-	return t.db.DropTable(ctx, podMetricsTableName)
+func (t *PodMetricsTable) Log() *logrus.Entry {
+	return t.logger
 }
 
-func (t *PodMetricsTable) Insert(ctx *sql.Context, metrics *v1beta1.PodMetrics) error {
+func (t *PodMetricsTable) Drop(ctx *sql.Context) error {
+	return t.db.DropTable(ctx, PodMetricsTableName)
+}
+
+func (t *PodMetricsTable) Insert(ctx *sql.Context, resource interface{}) error {
+	metrics, ok := resource.(*v1beta1.PodMetrics)
+	if !ok {
+		return errors.New("resource is not of type *v1beta1.PodMetrics")
+	}
 	inserter := t.table.Inserter(ctx)
 	defer inserter.Close(ctx)
 
@@ -114,7 +118,7 @@ func transverseContainersMetrics(ctx *sql.Context, metrics *v1beta1.PodMetrics,
 	for _, container := range containers {
 		err := closureAction(ctx, podMetricsRow(metrics, &container))
 		if err != nil {
-			podMetricsLog.Error(err)
+			log.Error(err)
 			return closureDiscard(ctx, err)
 		}
 	}
@@ -130,39 +134,53 @@ func podMetricsRow(metrics *v1beta1.PodMetrics, container_metrics *v1beta1.Conta
 		metrics.CreationTimestamp.Time)
 }
 
-func (t *PodMetricsTable) Delete(ctx *sql.Context, metrics *v1beta1.PodMetrics) error {
+func (t *PodMetricsTable) Delete(ctx *sql.Context, resource interface{}) error {
+	metrics, ok := resource.(*v1beta1.PodMetrics)
+	if !ok {
+		return errors.New("resource is not of type *v1beta1.PodMetrics")
+	}
 	deleter := t.table.Deleter(ctx)
 	defer deleter.Close(ctx)
 
 	return transverseContainersMetrics(ctx, metrics, deleter.StatementBegin, deleter.StatementComplete, deleter.Delete, deleter.DiscardChanges)
 }
 
-func (t *PodMetricsTable) Update(ctx *sql.Context, oldNodeMetrics, newNodeMetrics *v1beta1.PodMetrics) error {
-	if err := t.Delete(ctx, oldNodeMetrics); err != nil {
+func (t *PodMetricsTable) Update(ctx *sql.Context, oldres, newres interface{}) error {
+	oldMetrics, ok := oldres.(*v1beta1.PodMetrics)
+	if !ok {
+		return errors.New("oldres is not of type *v1beta1.PodMetrics")
+	}
+	newMetrics, ok := newres.(*v1beta1.PodMetrics)
+	if !ok {
+		return errors.New("newres is not of type *v1beta1.PodMetrics")
+	}
+
+	if err := t.Delete(ctx, oldMetrics); err != nil {
 		return err
 	}
-	if err := t.Insert(ctx, newNodeMetrics); err != nil {
+	if err := t.Insert(ctx, newMetrics); err != nil {
 		return err
 	}
 	return nil
 }
 
 func onAddPodMetrics(o interface{}) {
+	t := table(PodMetricsTableName)
 	metrics := o.(*v1beta1.PodMetrics)
-	podMetricsLog.Debugf("adding pod: %s\n", metrics.Name)
+	t.Log().Debugf("adding pod: %s\n", metrics.Name)
 	ctx := sql.NewEmptyContext()
-	if err := podMetricsTable.Insert(ctx, metrics); err != nil {
-		podMetricsLog.Error(err)
+	if err := t.Insert(ctx, metrics); err != nil {
+		t.Log().Error(err)
 	}
 }
 
 func onDelPodMetrics(o interface{}) {
-
+	t := table(PodMetricsTableName)
 	handleMetrics := func(metrics *v1beta1.PodMetrics) {
-		podMetricsLog.Debugf("deleting pod: %s\n", metrics.Name)
+		t.Log().Debugf("deleting pod: %s\n", metrics.Name)
 		ctx := sql.NewEmptyContext()
-		if err := podMetricsTable.Delete(ctx, metrics); err != nil {
-			podMetricsLog.Error(err)
+		if err := t.Delete(ctx, metrics); err != nil {
+			t.Log().Error(err)
 		}
 	}
 
@@ -175,17 +193,18 @@ func onDelPodMetrics(o interface{}) {
 		metrics := deletedFinalStateUnknown.Obj.(*v1beta1.PodMetrics)
 		handleMetrics(metrics)
 	default:
-		podMetricsLog.Error("cannot handle deleted object of type %T", v)
+		t.Log().Error("cannot handle deleted object of type %T", v)
 	}
 
 }
 
 func onUpdatePodMetrics(oldObj interface{}, newObj interface{}) {
+	t := table(PodMetricsTableName)
 	oldMetrics := oldObj.(*v1beta1.PodMetrics)
 	newMetrics := newObj.(*v1beta1.PodMetrics)
-	podMetricsLog.Debugf("updating pod: %s\n", oldMetrics.Name)
+	t.Log().Debugf("updating pod: %s\n", oldMetrics.Name)
 	ctx := sql.NewEmptyContext()
-	if err := podMetricsTable.Update(ctx, oldMetrics, newMetrics); err != nil {
-		podMetricsLog.Error(err)
+	if err := t.Update(ctx, oldMetrics, newMetrics); err != nil {
+		t.Log().Error(err)
 	}
 }

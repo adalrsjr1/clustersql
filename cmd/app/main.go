@@ -77,7 +77,7 @@ func runInformers(ctx context.Context, db *memory.Database) {
 		{tb.AffinityTableName, tb.StartAffinityInformer},
 		{tb.NodeAffinityTableName, tb.StartNodeAffinityInformer},
 		// {tb.NodeMetricsTableName, tb.StartNodeMetricsInformer},
-		// {tb.PodMetricsTableName, tb.StartPodMetricsInformer},
+		{tb.PodMetricsTableName, tb.StartPodMetricsInformer},
 		{tb.PodTableName, tb.StartPodInformer},
 		{tb.EndpointTableName, tb.StartEndpointInformer},
 		{tb.NodeTableName, tb.StartNodeInformer},

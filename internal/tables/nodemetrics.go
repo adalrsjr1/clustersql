@@ -134,10 +134,10 @@ func onAddNodeMetrics(o interface{}) {
 
 func onDelNodeMetrics(o interface{}) {
 	handleMetrics := func(metrics *v1beta1.NodeMetrics) {
-		podMetricsLog.Debugf("deleting pod: %s\n", metrics.Name)
+		nodeMetricsLog.Debugf("deleting pod: %s\n", metrics.Name)
 		ctx := sql.NewEmptyContext()
 		if err := nodeMetricsTable.Delete(ctx, metrics); err != nil {
-			podMetricsLog.Error(err)
+			nodeMetricsLog.Error(err)
 		}
 	}
 
@@ -150,7 +150,7 @@ func onDelNodeMetrics(o interface{}) {
 		metrics := deletedFinalStateUnknown.Obj.(*v1beta1.NodeMetrics)
 		handleMetrics(metrics)
 	default:
-		podMetricsLog.Error("cannot handle deleted object of type %T", v)
+		nodeMetricsLog.Error("cannot handle deleted object of type %T", v)
 	}
 }
 
