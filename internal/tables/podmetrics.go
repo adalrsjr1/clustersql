@@ -8,49 +8,12 @@ import (
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/sirupsen/logrus"
 
-	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/metrics/pkg/apis/metrics/v1beta1"
 )
 
-// func StartPodMetricsInformer(ctx context.Context, db *memory.Database) {
-// 	watchList := cache.NewListWatchFromClient(services.ClientsetVS.MetricsV1beta1().RESTClient(),
-// 		"pods", v1.NamespaceAll, fields.Everything())
-
-// 	_, informer := cache.NewInformer(
-// 		watchList,
-// 		&v1beta1.PodMetrics{},
-// 		0,
-// 		cache.ResourceEventHandlerFuncs{
-// 			AddFunc:    onAddPodMetrics,
-// 			UpdateFunc: onUpdatePodMetrics,
-// 			DeleteFunc: onDelPodMetrics,
-// 		},
-// 	)
-
-// 	defer runtime.HandleCrash()
-
-// 	initPodMetricsTable(db, informer)
-// 	go informer.Run(ctx.Done())
-// 	// start to sync and call list
-// 	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-// 		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
-// 		return
-// 	}
-
-// 	<-ctx.Done()
-// }
-
 func StartPodMetricsInformer(ctx context.Context, db *memory.Database) {
-
-	// informerConstructor := func(factory informers.SharedInformerFactory) cache.SharedIndexInformer {
-	// 	return factory.Core().V1().Pods().Informer()
-	// }
-
-	// startResourceInformer(ctx, db, informerConstructor, initPodTable, onAddPod, onUpdatePod, onDelPod)
 	startMetricsInformer(ctx, db, &v1beta1.PodMetrics{}, "pods", initPodMetricsTable, onAddPodMetrics, onUpdatePodMetrics, onDelPodMetrics)
-
 }
 
 type PodMetricsTable struct {
@@ -61,7 +24,7 @@ type PodMetricsTable struct {
 
 func initPodMetricsTable(db *memory.Database) {
 	if _, ok := tables[PodMetricsTableName]; !ok {
-		tables[PodMetricsTableName] = &PodTable{
+		tables[PodMetricsTableName] = &PodMetricsTable{
 			db:     db,
 			table:  createPodMetricsTable(db),
 			logger: tableLogger(PodMetricsTableName),
