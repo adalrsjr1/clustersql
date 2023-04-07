@@ -2,7 +2,7 @@ package tables
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/adalrsjr1/sqlcluster/internal/services"
 	"github.com/dolthub/go-mysql-server/memory"
@@ -10,57 +10,31 @@ import (
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 )
 
-var (
-	affinityTable *AffinityTable
-	affinityLog   = logrus.New().WithField("table", AffinityTableName)
-)
-
 func StartAffinityInformer(ctx context.Context, db *memory.Database) {
-	factory := informers.NewSharedInformerFactory(services.Clientset, 0)
-	informer := factory.Core().V1().Pods().Informer()
-
-	defer runtime.HandleCrash()
-
-	// start informer ->
-	go factory.Start(ctx.Done())
-
-	// start to sync and call list
-	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
-		return
+	informerConstructor := func(factory informers.SharedInformerFactory) cache.SharedIndexInformer {
+		return factory.Core().V1().Pods().Informer()
 	}
 
-	initAffinityTable(db, informer)
-	// informer event handler
-	affinityTable.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    onAddAffinity,
-		UpdateFunc: onUpdateAffinity,
-		DeleteFunc: onDelAffinity,
-	})
-
-	<-ctx.Done()
+	startResourceInformer(ctx, db, informerConstructor, initAffinityTable, onAddAffinity, onUpdateAffinity, onDelAffinity)
 }
 
 type AffinityTable struct {
-	db       *memory.Database
-	table    *memory.Table
-	informer cache.SharedIndexInformer
+	db     *memory.Database
+	table  *memory.Table
+	logger *logrus.Entry
 }
 
-func initAffinityTable(db *memory.Database, informer cache.SharedIndexInformer) {
-	if affinityTable != nil {
-		affinityLog.Warn("podTable name is empty")
-		return
-	}
-	affinityTable = &AffinityTable{
-		db:       db,
-		table:    createAffinityTable(db),
-		informer: informer,
+func initAffinityTable(db *memory.Database) {
+	if _, ok := tables[AffinityTableName]; !ok {
+		tables[AffinityTableName] = &AffinityTable{
+			db:     db,
+			table:  createAffinityTable(db),
+			logger: tableLogger(AffinityTableName),
+		}
 	}
 }
 
@@ -73,16 +47,25 @@ func createAffinityTable(db *memory.Database) *memory.Table {
 		{Name: "affinity", Type: sql.Text, Nullable: false, Source: AffinityTableName},
 		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: AffinityTableName},
 	}), db.GetForeignKeyCollection())
+
 	db.AddTable(AffinityTableName, table)
-	affinityLog.Infof("table [%s] created", AffinityTableName)
+	log.Infof("table [%s] created", AffinityTableName)
 	return table
+}
+
+func (t *AffinityTable) Log() *logrus.Entry {
+	return t.logger
 }
 
 func (t *AffinityTable) Drop(ctx *sql.Context) error {
 	return t.db.DropTable(ctx, AffinityTableName)
 }
 
-func (t *AffinityTable) Insert(ctx *sql.Context, pod *v1.Pod) error {
+func (t *AffinityTable) Insert(ctx *sql.Context, resource interface{}) error {
+	pod, ok := resource.(*v1.Pod)
+	if !ok {
+		return errors.New("resource is not of type *v1.Pod")
+	}
 	inserter := t.table.Inserter(ctx)
 	defer inserter.Close(ctx)
 
@@ -102,13 +85,13 @@ func transverseAffinities(ctx *sql.Context, pod *v1.Pod,
 		labelSelector := preferedTerm.PodAffinityTerm.LabelSelector
 		selectedPods, err := lookupPods(ctx, labelSelector)
 		if err != nil {
-			affinityLog.Error(err)
+			log.Error(err)
 			closureDiscard(ctx, err)
 		}
 
 		for _, affinityPod := range selectedPods {
 			if err := closureAction(ctx, affinityRow(pod, &affinityPod, &preferedTerm)); err != nil {
-				affinityLog.Error(err)
+				log.Error(err)
 				closureDiscard(ctx, err)
 			}
 		}
@@ -163,14 +146,27 @@ func affinityRow(pod, affinityPod *v1.Pod, preferedTerm *v1.WeightedPodAffinityT
 	return sql.NewRow(string(pod.UID), pod.Name, pod.Namespace, preferedTerm.Weight, affinityPod.Name, pod.CreationTimestamp.Time)
 }
 
-func (t *AffinityTable) Delete(ctx *sql.Context, pod *v1.Pod) error {
+func (t *AffinityTable) Delete(ctx *sql.Context, resource interface{}) error {
+	pod, ok := resource.(*v1.Pod)
+	if !ok {
+		return errors.New("resource is not of type *v1.Pod")
+	}
 	deleter := t.table.Deleter(ctx)
 	defer deleter.Close(ctx)
 
 	return transverseAffinities(ctx, pod, deleter.StatementBegin, deleter.StatementComplete, deleter.Delete, deleter.DiscardChanges)
 }
 
-func (t *AffinityTable) Update(ctx *sql.Context, oldPod, newPod *v1.Pod) error {
+func (t *AffinityTable) Update(ctx *sql.Context, oldres, newres interface{}) error {
+	oldPod, ok := oldres.(*v1.Pod)
+	if !ok {
+		return errors.New("oldres is not of type *v1.Pod")
+	}
+	newPod, ok := newres.(*v1.Pod)
+	if !ok {
+		return errors.New("newres is not of type *v1.Pod")
+	}
+
 	if err := t.Delete(ctx, oldPod); err != nil {
 		return err
 	}
@@ -181,29 +177,32 @@ func (t *AffinityTable) Update(ctx *sql.Context, oldPod, newPod *v1.Pod) error {
 }
 
 func onAddAffinity(o interface{}) {
+	t := table(AffinityTableName)
 	pod := o.(*v1.Pod)
-	affinityLog.Debugf("adding affinity: %s\n", pod.Name)
+	t.Log().Debugf("adding affinity: %s\n", pod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := affinityTable.Insert(ctx, pod); err != nil {
-		affinityLog.Error(err)
+	if err := t.Insert(ctx, pod); err != nil {
+		t.Log().Error(err)
 	}
 }
 
 func onDelAffinity(o interface{}) {
+	t := table(AffinityTableName)
 	pod := o.(*v1.Pod)
-	affinityLog.Debugf("deleting affinity: %s\n", pod.Name)
+	t.Log().Debugf("deleting affinity: %s\n", pod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := affinityTable.Delete(ctx, pod); err != nil {
-		affinityLog.Error(err)
+	if err := t.Delete(ctx, pod); err != nil {
+		t.Log().Error(err)
 	}
 }
 
 func onUpdateAffinity(oldObj interface{}, newObj interface{}) {
+	t := table(AffinityTableName)
 	oldPod := oldObj.(*v1.Pod)
 	newPod := newObj.(*v1.Pod)
-	affinityLog.Debugf("updating affinity: %s\n", oldPod.Name)
+	t.Log().Debugf("updating affinity: %s\n", oldPod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := affinityTable.Update(ctx, oldPod, newPod); err != nil {
-		affinityLog.Error(err)
+	if err := t.Update(ctx, oldPod, newPod); err != nil {
+		t.Log().Error(err)
 	}
 }

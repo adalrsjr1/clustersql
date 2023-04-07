@@ -2,6 +2,7 @@ package tables
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/adalrsjr1/sqlcluster/internal/services"
@@ -12,85 +13,65 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 )
 
-const nodeAffinityTableName = "Node_Affinity"
-
-var (
-	nodeAffinityTable *NodeAffinityTable
-	nodeAffinityLog   = logrus.WithFields(
-		logrus.Fields{
-			"table": nodeAffinityTableName,
-		},
-	)
-)
-
 func StartNodeAffinityInformer(ctx context.Context, db *memory.Database) {
-	factory := informers.NewSharedInformerFactory(services.Clientset, 0)
-	informer := factory.Core().V1().Pods().Informer()
 
-	defer runtime.HandleCrash()
+	informerConstructor := func(factory informers.SharedInformerFactory) cache.SharedIndexInformer {
+		return factory.Core().V1().Pods().Informer()
 
-	// start informer ->
-	go factory.Start(ctx.Done())
-
-	// start to sync and call list
-	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
-		return
 	}
 
-	initNodeAffinityTable(db, informer)
-	// informer event handler
-	nodeAffinityTable.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    onAddNodeAffinity,
-		UpdateFunc: onUpdateNodeAffinity,
-		DeleteFunc: onDelNodeAffinity,
-	})
+	startResourceInformer(ctx, db, informerConstructor, initNodeAffinityTable, onAddNodeAffinity, onUpdateNodeAffinity, onDelNodeAffinity)
 
-	<-ctx.Done()
 }
 
 type NodeAffinityTable struct {
-	db       *memory.Database
-	table    *memory.Table
-	informer cache.SharedIndexInformer
+	db     *memory.Database
+	table  *memory.Table
+	logger *logrus.Entry
 }
 
-func initNodeAffinityTable(db *memory.Database, informer cache.SharedIndexInformer) {
-	if nodeAffinityTable != nil {
-		nodeAffinityLog.Warn("podTable name is empty")
-		return
-	}
-	nodeAffinityTable = &NodeAffinityTable{
-		db:       db,
-		table:    createNodeAffinityTable(db),
-		informer: informer,
+func initNodeAffinityTable(db *memory.Database) {
+	if _, ok := tables[NodeAffinityTableName]; !ok {
+		tables[NodeAffinityTableName] = &NodeAffinityTable{
+			db:     db,
+			table:  createNodeAffinityTable(db),
+			logger: tableLogger(NodeAffinityTableName),
+		}
 	}
 }
 
 func createNodeAffinityTable(db *memory.Database) *memory.Table {
-	table := memory.NewTable(nodeAffinityTableName, sql.NewPrimaryKeySchema(sql.Schema{
-		{Name: "uid", Type: sql.Text, Nullable: false, Source: nodeAffinityTableName},
-		{Name: "name", Type: sql.Text, Nullable: false, Source: nodeAffinityTableName},
-		{Name: "namespace", Type: sql.Text, Nullable: false, Source: nodeAffinityTableName},
-		{Name: "weight", Type: sql.Int32, Nullable: false, Source: nodeAffinityTableName},
-		{Name: "affinity", Type: sql.Text, Nullable: false, Source: nodeAffinityTableName},
-		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: nodeAffinityTableName},
+	table := memory.NewTable(NodeAffinityTableName, sql.NewPrimaryKeySchema(sql.Schema{
+		{Name: "uid", Type: sql.Text, Nullable: false, Source: NodeAffinityTableName},
+		{Name: "name", Type: sql.Text, Nullable: false, Source: NodeAffinityTableName},
+		{Name: "namespace", Type: sql.Text, Nullable: false, Source: NodeAffinityTableName},
+		{Name: "weight", Type: sql.Int32, Nullable: false, Source: NodeAffinityTableName},
+		{Name: "affinity", Type: sql.Text, Nullable: false, Source: NodeAffinityTableName},
+		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: NodeAffinityTableName},
 	}), db.GetForeignKeyCollection())
-	db.AddTable(nodeAffinityTableName, table)
-	nodeAffinityLog.Infof("table [%s] created", nodeAffinityTableName)
+
+	db.AddTable(NodeAffinityTableName, table)
+	log.Infof("table [%s] created", NodeAffinityTableName)
 	return table
 }
 
-func (t *NodeAffinityTable) Drop(ctx *sql.Context) error {
-	return t.db.DropTable(ctx, nodeAffinityTableName)
+func (t *NodeAffinityTable) Log() *logrus.Entry {
+	return t.logger
 }
 
-func (t *NodeAffinityTable) Insert(ctx *sql.Context, pod *v1.Pod) error {
+func (t *NodeAffinityTable) Drop(ctx *sql.Context) error {
+	return t.db.DropTable(ctx, NodeAffinityTableName)
+}
+
+func (t *NodeAffinityTable) Insert(ctx *sql.Context, resource interface{}) error {
+	pod, ok := resource.(*v1.Pod)
+	if !ok {
+		return errors.New("resource is not of type *v1.Pod")
+	}
 	inserter := t.table.Inserter(ctx)
 	defer inserter.Close(ctx)
 
@@ -110,13 +91,13 @@ func transverseNodeAffinities(ctx *sql.Context, pod *v1.Pod,
 		for _, nodeSelector := range preferedTerm.Preference.MatchExpressions {
 			selectedNodes, err := lookupNodes(ctx, &nodeSelector)
 			if err != nil {
-				nodeAffinityLog.Error(err)
+				log.Error(err)
 				closureDiscard(ctx, err)
 			}
 
 			for _, affinityNode := range selectedNodes {
 				if err := closureAction(ctx, affinityNodeRow(pod, &affinityNode, &preferedTerm)); err != nil {
-					nodeAffinityLog.Error(err)
+					log.Error(err)
 					closureDiscard(ctx, err)
 				}
 			}
@@ -197,14 +178,27 @@ func affinityNodeRow(pod *v1.Pod, affinityNode *v1.Node, preferedTerm *v1.Prefer
 	return sql.NewRow(string(pod.UID), pod.Name, pod.Namespace, preferedTerm.Weight, affinityNode.Name, pod.CreationTimestamp.Time)
 }
 
-func (t *NodeAffinityTable) Delete(ctx *sql.Context, pod *v1.Pod) error {
+func (t *NodeAffinityTable) Delete(ctx *sql.Context, resource interface{}) error {
+	pod, ok := resource.(*v1.Pod)
+	if !ok {
+		return errors.New("resource is not of type *v1.Pod")
+	}
 	deleter := t.table.Deleter(ctx)
 	defer deleter.Close(ctx)
 
 	return transverseNodeAffinities(ctx, pod, deleter.StatementBegin, deleter.StatementComplete, deleter.Delete, deleter.DiscardChanges)
 }
 
-func (t *NodeAffinityTable) Update(ctx *sql.Context, oldPod, newPod *v1.Pod) error {
+func (t *NodeAffinityTable) Update(ctx *sql.Context, oldres, newres interface{}) error {
+	oldPod, ok := oldres.(*v1.Pod)
+	if !ok {
+		return errors.New("oldres is not of type *v1.Pod")
+	}
+	newPod, ok := newres.(*v1.Pod)
+	if !ok {
+		return errors.New("newres is not of type *v1.Pod")
+	}
+
 	if err := t.Delete(ctx, oldPod); err != nil {
 		return err
 	}
@@ -215,29 +209,32 @@ func (t *NodeAffinityTable) Update(ctx *sql.Context, oldPod, newPod *v1.Pod) err
 }
 
 func onAddNodeAffinity(o interface{}) {
+	t := table(NodeAffinityTableName)
 	pod := o.(*v1.Pod)
-	nodeAffinityLog.Debugf("adding affinity: %s\n", pod.Name)
+	t.Log().Debugf("adding affinity: %s\n", pod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := nodeAffinityTable.Insert(ctx, pod); err != nil {
-		nodeAffinityLog.Error(err)
+	if err := t.Insert(ctx, pod); err != nil {
+		t.Log().Error(err)
 	}
 }
 
 func onDelNodeAffinity(o interface{}) {
+	t := table(NodeAffinityTableName)
 	pod := o.(*v1.Pod)
-	nodeAffinityLog.Debugf("deleting affinity: %s\n", pod.Name)
+	t.Log().Debugf("deleting affinity: %s\n", pod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := nodeAffinityTable.Delete(ctx, pod); err != nil {
-		nodeAffinityLog.Error(err)
+	if err := t.Delete(ctx, pod); err != nil {
+		t.Log().Error(err)
 	}
 }
 
 func onUpdateNodeAffinity(oldObj interface{}, newObj interface{}) {
+	t := table(NodeAffinityTableName)
 	oldPod := oldObj.(*v1.Pod)
 	newPod := newObj.(*v1.Pod)
-	nodeAffinityLog.Debugf("updating affinity: %s\n", oldPod.Name)
+	t.Log().Debugf("updating affinity: %s\n", oldPod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := nodeAffinityTable.Update(ctx, oldPod, newPod); err != nil {
-		nodeAffinityLog.Error(err)
+	if err := t.Update(ctx, oldPod, newPod); err != nil {
+		t.Log().Error(err)
 	}
 }
