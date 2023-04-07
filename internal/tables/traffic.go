@@ -83,7 +83,7 @@ func StartTrafficInformer(ctx context.Context, db *memory.Database) {
 			select {
 			case <-time.After(d):
 				trafficTable.Drop(sqlCtx)
-				trafficTable.(*AffinityTable).table = createTrafficTable(db)
+				trafficTable.(*TrafficTable).table = createTrafficTable(db)
 				queryMetrics(sqlCtx)
 			case <-ctx.Done():
 				return
