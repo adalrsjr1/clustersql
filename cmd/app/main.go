@@ -82,7 +82,7 @@ func runInformers(ctx context.Context, db *memory.Database) {
 		{tb.EndpointTableName, tb.StartEndpointInformer},
 		{tb.NodeTableName, tb.StartNodeInformer},
 		{tb.ContainerTableName, tb.StartContainerInformer},
-		// {tb.TrafficTableName, tb.StartTrafficInformer},
+		{tb.TrafficTableName, tb.StartTrafficInformer},
 	}
 
 	for _, t := range tables {

@@ -2,7 +2,7 @@ package tables
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/adalrsjr1/sqlcluster/internal/services"
 	"github.com/dolthub/go-mysql-server/memory"
@@ -64,7 +64,7 @@ func (t *AffinityTable) Drop(ctx *sql.Context) error {
 func (t *AffinityTable) Insert(ctx *sql.Context, resource interface{}) error {
 	pod, ok := resource.(*v1.Pod)
 	if !ok {
-		return errors.New("resource is not of type *v1.Pod")
+		return fmt.Errorf("resource is not of type *v1.Pod")
 	}
 	inserter := t.table.Inserter(ctx)
 	defer inserter.Close(ctx)
@@ -149,7 +149,7 @@ func affinityRow(pod, affinityPod *v1.Pod, preferedTerm *v1.WeightedPodAffinityT
 func (t *AffinityTable) Delete(ctx *sql.Context, resource interface{}) error {
 	pod, ok := resource.(*v1.Pod)
 	if !ok {
-		return errors.New("resource is not of type *v1.Pod")
+		return fmt.Errorf("resource is not of type *v1.Pod")
 	}
 	deleter := t.table.Deleter(ctx)
 	defer deleter.Close(ctx)
@@ -160,11 +160,11 @@ func (t *AffinityTable) Delete(ctx *sql.Context, resource interface{}) error {
 func (t *AffinityTable) Update(ctx *sql.Context, oldres, newres interface{}) error {
 	oldPod, ok := oldres.(*v1.Pod)
 	if !ok {
-		return errors.New("oldres is not of type *v1.Pod")
+		return fmt.Errorf("oldres is not of type *v1.Pod")
 	}
 	newPod, ok := newres.(*v1.Pod)
 	if !ok {
-		return errors.New("newres is not of type *v1.Pod")
+		return fmt.Errorf("newres is not of type *v1.Pod")
 	}
 
 	if err := t.Delete(ctx, oldPod); err != nil {

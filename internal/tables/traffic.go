@@ -20,8 +20,7 @@ import (
 )
 
 const (
-	trafficTableName = "Traffic"
-	duration         = "5m"
+	duration = "5m"
 	// queries
 	// istio metrics: https://istio.io/latest/docs/reference/config/metrics/
 	requestCountQuery        = "rate(istio_requests_total[5m])"
@@ -58,14 +57,7 @@ const (
 )
 
 var (
-	trafficTable *TrafficTable
-	promURL      = flag.String("promURL", "http://prometheus.istio-system:9090", "the URL of the Prometheus server -- http://localhost:9090")
-
-	trafficLog = logrus.WithFields(
-		logrus.Fields{
-			"table": trafficTableName,
-		},
-	)
+	promURL = flag.String("promURL", "http://prometheus.istio-system:9090", "the URL of the Prometheus server -- http://localhost:9090")
 )
 
 func StartTrafficInformer(ctx context.Context, db *memory.Database) {
@@ -73,7 +65,7 @@ func StartTrafficInformer(ctx context.Context, db *memory.Database) {
 
 	d, err := time.ParseDuration(duration)
 	if err != nil {
-		trafficLog.Warn("cannot parse %s into duration, fallback to 5m", duration)
+		log.Warn("cannot parse %s into duration, fallback to 5m", duration)
 		d = 5 * time.Minute
 	}
 
@@ -81,11 +73,17 @@ func StartTrafficInformer(ctx context.Context, db *memory.Database) {
 		initTrafficTable(db)
 		sqlCtx := sql.NewContext(ctx)
 		queryMetrics(sqlCtx)
+
+		trafficTable := table(TrafficTableName)
+		if trafficTable == nil {
+			log.Fatalf("table %s does not exist", TrafficTableName)
+		}
+
 		for {
 			select {
 			case <-time.After(d):
 				trafficTable.Drop(sqlCtx)
-				trafficTable.table = createTrafficTable(db)
+				trafficTable.(*AffinityTable).table = createTrafficTable(db)
 				queryMetrics(sqlCtx)
 			case <-ctx.Done():
 				return
@@ -135,7 +133,7 @@ func queryMetrics(ctx context.Context) {
 		metricResponseSize99,
 	}
 
-	streamPromResp := make(chan *PromQueryResponse, len(queries))
+	streamPromResp := make(chan *promQueryResponse, len(queries))
 
 	go func() {
 		defer close(streamPromResp)
@@ -145,12 +143,12 @@ func queryMetrics(ctx context.Context) {
 		defer wg.Wait()
 
 		for i, query := range queries {
-			trafficLog.Debugf(">>> %s: %s\n", metrics[i], query)
+			log.Debugf(">>> %s: %s\n", metrics[i], query)
 			go func(metricName, query string) {
 				defer wg.Done()
 				u, err := url.Parse(fmt.Sprintf("%s/api/v1/query", *promURL))
 				if err != nil {
-					trafficLog.Warn(err)
+					log.Fatal(err)
 				}
 
 				q := u.Query()
@@ -159,26 +157,30 @@ func queryMetrics(ctx context.Context) {
 
 				resp, err := http.Get(u.String())
 				if err != nil {
-					trafficLog.Warn(err)
+					log.Fatal(err)
 				}
 				defer resp.Body.Close()
 
 				body, err := io.ReadAll(resp.Body)
 				if err != nil {
-					trafficLog.Warn(err)
+					log.Fatal(err)
 				}
 
-				promResponse := PromQueryResponse{MetricName: metricName}
+				promResponse := promQueryResponse{MetricName: metricName}
 				json.Unmarshal(body, &promResponse)
 
 				streamPromResp <- &promResponse
-				trafficLog.Debugf("<<< %s: %s\n", metricName, query)
+				log.Debugf("<<< %s: %s\n", metricName, query)
 			}(metrics[i], query)
 		}
 
 	}()
 
 	go func(ctx context.Context) {
+		trafficTable := table(TrafficTableName)
+		if trafficTable == nil {
+			log.Fatal("table %s does not exist", TrafficTableName)
+		}
 		for resp := range streamPromResp {
 			ctx := sql.NewContext(ctx)
 			err := trafficTable.Insert(ctx, resp)
@@ -191,33 +193,33 @@ func queryMetrics(ctx context.Context) {
 
 }
 
-type PromQueryResponse struct {
+type promQueryResponse struct {
 	MetricName string
 	Status     string                `json:"status,omitempty"`
-	Data       PromQueryResponseData `json:"data,omitempty"`
+	Data       promQueryResponseData `json:"data,omitempty"`
 }
 
-type PromQueryResponseData struct {
+type promQueryResponseData struct {
 	ResultType string                    `json:"resultType,omitempty"`
-	Result     []PromQueryResponseResult `json:"result,omitempty"`
+	Result     []promQueryResponseResult `json:"result,omitempty"`
 }
 
-type PromQueryResponseResult struct {
-	Metric PromQueryResultResultMetric `json:"metric,omitempty"`
+type promQueryResponseResult struct {
+	Metric promQueryResultResultMetric `json:"metric,omitempty"`
 	Value  []interface{}               `json:"value,omitempty"`
 }
 
-func (p *PromQueryResponseResult) CastValue() float64 {
+func (p *promQueryResponseResult) CastValue() float64 {
 	v := p.Value[1]
 	f, err := strconv.ParseFloat(v.(string), 64)
 	if err != nil {
-		trafficLog.Warn(err)
+		log.Warn(err)
 		return math.NaN()
 	}
 	return f
 }
 
-func (p *PromQueryResponseResult) CastHTTPCode() int32 {
+func (p *promQueryResponseResult) CastHTTPCode() int32 {
 	v := p.Metric.ResponseCode
 	if v == "" {
 		return -1
@@ -225,13 +227,13 @@ func (p *PromQueryResponseResult) CastHTTPCode() int32 {
 
 	i, err := strconv.ParseInt(v, 10, 32)
 	if err != nil {
-		trafficLog.Warn(err)
+		log.Warn(err)
 		return 0
 	}
 	return int32(i)
 }
 
-func (p *PromQueryResponseResult) CastGRPCCode() int32 {
+func (p *promQueryResponseResult) CastGRPCCode() int32 {
 	v := p.Metric.GRPCResponseStatus
 	if v == "" {
 		return -1
@@ -239,13 +241,13 @@ func (p *PromQueryResponseResult) CastGRPCCode() int32 {
 
 	i, err := strconv.ParseInt(v, 10, 32)
 	if err != nil {
-		trafficLog.Warn(err)
+		log.Warn(err)
 		return 0
 	}
 	return int32(i)
 }
 
-type PromQueryResultResultMetric struct {
+type promQueryResultResultMetric struct {
 	App                             string `json:"app,omitempty"`
 	ConnectionSecurityPolicy        string `json:"connection_security_policy,omitempty"`
 	DestinationApp                  string `json:"destination_app,omitempty"`
@@ -283,7 +285,7 @@ type PromQueryResultResultMetric struct {
 	Version                         string `json:"version,omitempty"`
 }
 
-func (p *PromQueryResponse) Rows() []sql.Row {
+func (p *promQueryResponse) Rows() []sql.Row {
 	rows := make([]sql.Row, len(p.Data.Result))
 	for i, result := range p.Data.Result {
 		rows[i] = sql.NewRow(
@@ -304,75 +306,80 @@ func (p *PromQueryResponse) Rows() []sql.Row {
 }
 
 type TrafficTable struct {
-	db    *memory.Database
-	table *memory.Table
-	// client promClient
+	db     *memory.Database
+	table  *memory.Table
+	logger *logrus.Entry
 }
 
 func initTrafficTable(db *memory.Database) {
-	if trafficTable != nil {
-		trafficLog.Warnf("%s name is empty", trafficTableName)
-		return
-	}
-	trafficTable = &TrafficTable{
-		db:    db,
-		table: createTrafficTable(db),
-		// client: client,
+	if _, ok := tables[TrafficTableName]; !ok {
+		tables[TrafficTableName] = &TrafficTable{
+			db:     db,
+			table:  createTrafficTable(db),
+			logger: tableLogger(PodMetricsTableName),
+		}
 	}
 }
 
 func createTrafficTable(db *memory.Database) *memory.Table {
-	table := memory.NewTable(trafficTableName, sql.NewPrimaryKeySchema(sql.Schema{
-		{Name: "src_deployment", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "src_namespace", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "dst_deployment", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "dst_pod", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "dst_instance", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "dst_service", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "dst_namespace", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "protocol", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "http_status_code", Type: sql.Int32, Nullable: false, Source: trafficTableName},
-		{Name: "grpc_status_code", Type: sql.Int32, Nullable: false, Source: trafficTableName},
-		{Name: "metric", Type: sql.Text, Nullable: false, Source: trafficTableName},
-		{Name: "value", Type: sql.Float64, Nullable: false, Source: trafficTableName},
+	table := memory.NewTable(TrafficTableName, sql.NewPrimaryKeySchema(sql.Schema{
+		{Name: "src_deployment", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "src_namespace", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "dst_deployment", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "dst_pod", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "dst_instance", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "dst_service", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "dst_namespace", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "protocol", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "http_status_code", Type: sql.Int32, Nullable: false, Source: TrafficTableName},
+		{Name: "grpc_status_code", Type: sql.Int32, Nullable: false, Source: TrafficTableName},
+		{Name: "metric", Type: sql.Text, Nullable: false, Source: TrafficTableName},
+		{Name: "value", Type: sql.Float64, Nullable: false, Source: TrafficTableName},
 	}), db.GetForeignKeyCollection())
 
-	db.AddTable(trafficTableName, table)
-	trafficLog.Infof("table [%s] created", trafficTableName)
+	db.AddTable(TrafficTableName, table)
+	log.Infof("table [%s] created", TrafficTableName)
 	return table
+}
+
+func (t *TrafficTable) Log() *logrus.Entry {
+	return t.logger
 }
 
 func (t *TrafficTable) Drop(ctx *sql.Context) error {
 	if t == nil {
 		return nil
 	}
-	return t.db.DropTable(ctx, trafficTableName)
+	return t.db.DropTable(ctx, TrafficTableName)
 }
+func (t *TrafficTable) Insert(ctx *sql.Context, resource interface{}) error {
+	promResp, ok := resource.(*promQueryResponse)
+	if !ok {
+		return fmt.Errorf("resource is not of type *PromQueryResponse")
+	}
 
-func (t *TrafficTable) Insert(ctx *sql.Context, promResp *PromQueryResponse) error {
 	errCount := 0
 
 	for _, row := range promResp.Rows() {
 		err := t.table.Insert(ctx, row)
-		trafficLog.Debugf("inserting: [%s] ->[%s] -- error[%v]\n", row[0], row[3], err)
+		t.Log().Debugf("inserting: [%s] ->[%s] -- error[%v]\n", row[0], row[3], err)
 		if err != nil {
-			trafficLog.Warn(err)
+			t.Log().Warn(err)
 			errCount++
 		}
 	}
 	if errCount > 0 {
-		return fmt.Errorf("%d errors when inserting row into %s", errCount, trafficTableName)
+		return fmt.Errorf("%d errors when inserting row into %s", errCount, TrafficTableName)
 	}
 	return nil
 }
 
-func (t *TrafficTable) Delete(ctx *sql.Context, promResp *PromQueryResponse) error {
-	trafficLog.Warn("delete table not implemented")
+func (t *TrafficTable) Delete(ctx *sql.Context, resource interface{}) error {
+	t.Log().Warn("delete in table %s is not implemented", TrafficTableName)
 	return nil
 }
 
-func (t *TrafficTable) Update(ctx *sql.Context, oldPromResp, newPromResp *PromQueryResponse) error {
-	// panic("not implemented")
-	trafficLog.Warn("update table not implemented")
+func (t *TrafficTable) Update(ctx *sql.Context, oldres, newres interface{}) error {
+	t.Log().Warn("update table %s is not implemented", TrafficTableName)
 	return nil
 }

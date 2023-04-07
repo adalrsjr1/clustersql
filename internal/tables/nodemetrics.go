@@ -2,7 +2,7 @@ package tables
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
@@ -60,7 +60,7 @@ func (t *NodeMetricsTable) Drop(ctx *sql.Context) error {
 func (t *NodeMetricsTable) Insert(ctx *sql.Context, resource interface{}) error {
 	metrics, ok := resource.(*v1beta1.NodeMetrics)
 	if !ok {
-		return errors.New("resource is not of type *v1beta1.NodeMetrics")
+		return fmt.Errorf("resource is not of type *v1beta1.NodeMetrics")
 	}
 	inserter := t.table.Inserter(ctx)
 	defer inserter.Close(ctx)
@@ -79,7 +79,7 @@ func nodeMetricsRow(metrics *v1beta1.NodeMetrics) sql.Row {
 func (t *NodeMetricsTable) Delete(ctx *sql.Context, resource interface{}) error {
 	metrics, ok := resource.(*v1beta1.NodeMetrics)
 	if !ok {
-		return errors.New("resource is not of type *v1beta1.NodeMetrics")
+		return fmt.Errorf("resource is not of type *v1beta1.NodeMetrics")
 	}
 	deleter := t.table.Deleter(ctx)
 	defer deleter.Close(ctx)
@@ -90,11 +90,11 @@ func (t *NodeMetricsTable) Delete(ctx *sql.Context, resource interface{}) error 
 func (t *NodeMetricsTable) Update(ctx *sql.Context, oldres, newres interface{}) error {
 	oldMetrics, ok := oldres.(*v1beta1.NodeMetrics)
 	if !ok {
-		return errors.New("oldres is not of type *v1beta1.NodeMetrics")
+		return fmt.Errorf("oldres is not of type *v1beta1.NodeMetrics")
 	}
 	newMetrics, ok := newres.(*v1beta1.NodeMetrics)
 	if !ok {
-		return errors.New("newres is not of type *v1beta1.NodeMetrics")
+		return fmt.Errorf("newres is not of type *v1beta1.NodeMetrics")
 	}
 
 	updater := t.table.Updater(ctx)
