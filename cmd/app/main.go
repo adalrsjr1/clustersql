@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/adalrsjr1/sqlcluster/internal/services"
-	"github.com/adalrsjr1/sqlcluster/internal/tables"
 	tb "github.com/adalrsjr1/sqlcluster/internal/tables"
 	sqle "github.com/dolthub/go-mysql-server"
 	"github.com/dolthub/go-mysql-server/memory"
@@ -75,15 +74,15 @@ func runInformers(ctx context.Context, db *memory.Database) {
 		name      string
 		startFunc func(context.Context, *memory.Database)
 	}{
-		// {tables.AffinityTableName, tb.StartAffinityInformer},
-		// {tables.NodeAffinityTableName, tb.StartNodeAffinityInformer},
-		// {tables.NodeMetricsTableName, tb.StartNodeMetricsInformer},
-		// {tables.PodMetricsTableName, tb.StartPodMetricsInformer},
-		{tables.PodTableName, tb.StartPodInformer},
-		// {tables.EndpointTableName, tb.StartEndpointInformer},
-		// {tables.NodeTableName, tb.StartNodeInformer},
-		// {tables.ContainerTableName, tb.StartContainerInformer},
-		// {tables.TrafficTableName, tb.StartTrafficInformer},
+		// {tb.AffinityTableName, tb.StartAffinityInformer},
+		// {tb.NodeAffinityTableName, tb.StartNodeAffinityInformer},
+		// {tb.NodeMetricsTableName, tb.StartNodeMetricsInformer},
+		// {tb.PodMetricsTableName, tb.StartPodMetricsInformer},
+		{tb.PodTableName, tb.StartPodInformer},
+		// {tb.EndpointTableName, tb.StartEndpointInformer},
+		{tb.NodeTableName, tb.StartNodeInformer},
+		// {tb.ContainerTableName, tb.StartContainerInformer},
+		// {tb.TrafficTableName, tb.StartTrafficInformer},
 	}
 
 	for _, t := range tables {

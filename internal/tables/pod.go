@@ -39,10 +39,6 @@ func initPodTable(db *memory.Database) {
 	}
 }
 
-func (t *PodTable) Log() *logrus.Entry {
-	return t.logger
-}
-
 func createPodTable(db *memory.Database) *memory.Table {
 
 	table := memory.NewTable(PodTableName, sql.NewPrimaryKeySchema(sql.Schema{
@@ -59,6 +55,10 @@ func createPodTable(db *memory.Database) *memory.Table {
 	db.AddTable(PodTableName, table)
 	log.Infof("table [%s] created", PodTableName)
 	return table
+}
+
+func (t *PodTable) Log() *logrus.Entry {
+	return t.logger
 }
 
 func (t *PodTable) Drop(ctx *sql.Context) error {
