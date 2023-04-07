@@ -205,8 +205,8 @@ type promQueryResponseData struct {
 }
 
 type promQueryResponseResult struct {
-	Metric promQueryResultResultMetric `json:"metric,omitempty"`
-	Value  []interface{}               `json:"value,omitempty"`
+	Metric promQueryResultMetric `json:"metric,omitempty"`
+	Value  []interface{}         `json:"value,omitempty"`
 }
 
 func (p *promQueryResponseResult) CastValue() float64 {
@@ -214,7 +214,11 @@ func (p *promQueryResponseResult) CastValue() float64 {
 	f, err := strconv.ParseFloat(v.(string), 64)
 	if err != nil {
 		log.Warn(err)
-		return math.NaN()
+		return -1
+	}
+	if math.IsNaN(f) {
+		log.Warnf("inserting NaN as -1")
+		return -1
 	}
 	return f
 }
@@ -247,7 +251,7 @@ func (p *promQueryResponseResult) CastGRPCCode() int32 {
 	return int32(i)
 }
 
-type promQueryResultResultMetric struct {
+type promQueryResultMetric struct {
 	App                             string `json:"app,omitempty"`
 	ConnectionSecurityPolicy        string `json:"connection_security_policy,omitempty"`
 	DestinationApp                  string `json:"destination_app,omitempty"`
