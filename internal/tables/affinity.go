@@ -15,15 +15,9 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-const affinityTableName = "Affinity"
-
 var (
 	affinityTable *AffinityTable
-	affinityLog   = logrus.WithFields(
-		logrus.Fields{
-			"table": affinityTableName,
-		},
-	)
+	affinityLog   = logrus.New().WithField("table", AffinityTableName)
 )
 
 func StartAffinityInformer(ctx context.Context, db *memory.Database) {
@@ -71,21 +65,21 @@ func initAffinityTable(db *memory.Database, informer cache.SharedIndexInformer) 
 }
 
 func createAffinityTable(db *memory.Database) *memory.Table {
-	table := memory.NewTable(affinityTableName, sql.NewPrimaryKeySchema(sql.Schema{
-		{Name: "uid", Type: sql.Text, Nullable: false, Source: affinityTableName},
-		{Name: "name", Type: sql.Text, Nullable: false, Source: affinityTableName},
-		{Name: "namespace", Type: sql.Text, Nullable: false, Source: affinityTableName},
-		{Name: "weight", Type: sql.Int32, Nullable: false, Source: affinityTableName},
-		{Name: "affinity", Type: sql.Text, Nullable: false, Source: affinityTableName},
-		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: affinityTableName},
+	table := memory.NewTable(AffinityTableName, sql.NewPrimaryKeySchema(sql.Schema{
+		{Name: "uid", Type: sql.Text, Nullable: false, Source: AffinityTableName},
+		{Name: "name", Type: sql.Text, Nullable: false, Source: AffinityTableName},
+		{Name: "namespace", Type: sql.Text, Nullable: false, Source: AffinityTableName},
+		{Name: "weight", Type: sql.Int32, Nullable: false, Source: AffinityTableName},
+		{Name: "affinity", Type: sql.Text, Nullable: false, Source: AffinityTableName},
+		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: AffinityTableName},
 	}), db.GetForeignKeyCollection())
-	db.AddTable(affinityTableName, table)
-	affinityLog.Infof("table [%s] created", affinityTableName)
+	db.AddTable(AffinityTableName, table)
+	affinityLog.Infof("table [%s] created", AffinityTableName)
 	return table
 }
 
 func (t *AffinityTable) Drop(ctx *sql.Context) error {
-	return t.db.DropTable(ctx, affinityTableName)
+	return t.db.DropTable(ctx, AffinityTableName)
 }
 
 func (t *AffinityTable) Insert(ctx *sql.Context, pod *v1.Pod) error {

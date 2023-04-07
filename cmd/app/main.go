@@ -75,15 +75,15 @@ func runInformers(ctx context.Context, db *memory.Database) {
 		name      string
 		startFunc func(context.Context, *memory.Database)
 	}{
-		{tables.AffinityTableName, tb.StartAffinityInformer},
-		{tables.NodeAffinityTableName, tb.StartNodeAffinityInformer},
-		{tables.NodeMetricsTableName, tb.StartNodeMetricsInformer},
-		{tables.PodMetricsTableName, tb.StartPodMetricsInformer},
+		// {tables.AffinityTableName, tb.StartAffinityInformer},
+		// {tables.NodeAffinityTableName, tb.StartNodeAffinityInformer},
+		// {tables.NodeMetricsTableName, tb.StartNodeMetricsInformer},
+		// {tables.PodMetricsTableName, tb.StartPodMetricsInformer},
 		{tables.PodTableName, tb.StartPodInformer},
-		{tables.EndpointTableName, tb.StartEndpointInformer},
-		{tables.NodeTableName, tb.StartNodeInformer},
-		{tables.ContainerTableName, tb.StartContainerInformer},
-		{tables.TrafficTableName, tb.StartTrafficInformer},
+		// {tables.EndpointTableName, tb.StartEndpointInformer},
+		// {tables.NodeTableName, tb.StartNodeInformer},
+		// {tables.ContainerTableName, tb.StartContainerInformer},
+		// {tables.TrafficTableName, tb.StartTrafficInformer},
 	}
 
 	for _, t := range tables {

@@ -86,7 +86,7 @@ func createEndpointTable(db *memory.Database) *memory.Table {
 }
 
 func (t *EndpointTable) Drop(ctx *sql.Context) error {
-	return t.db.DropTable(ctx, podTableName)
+	return t.db.DropTable(ctx, PodTableName)
 }
 
 func (t *EndpointTable) Insert(ctx *sql.Context, svc *v1.Endpoints) error {

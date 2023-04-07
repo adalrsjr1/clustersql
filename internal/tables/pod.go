@@ -5,142 +5,140 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/adalrsjr1/sqlcluster/internal/services"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/sirupsen/logrus"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
 )
 
-const podTableName = "Pod"
-
-var (
-	podTable *PodTable
-	podLog   = logrus.WithFields(
-		logrus.Fields{
-			"table": podTableName,
-		},
-	)
-)
-
 func StartPodInformer(ctx context.Context, db *memory.Database) {
-	factory := informers.NewSharedInformerFactory(services.Clientset, 0)
-	informer := factory.Core().V1().Pods().Informer()
 
-	defer runtime.HandleCrash()
-
-	// start informer ->
-	go factory.Start(ctx.Done())
-
-	// start to sync and call list
-	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
-		return
+	informerConstructor := func(factory informers.SharedInformerFactory) cache.SharedIndexInformer {
+		return factory.Core().V1().Pods().Informer()
 	}
 
-	initPodTable(db, informer)
-	// informer event handler
-	podTable.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    onAddPod,
-		UpdateFunc: onUpdatePod,
-		DeleteFunc: onDelPod,
-	})
+	startResourceInformer(ctx, db, informerConstructor, initPodTable, onAddPod, onUpdatePod, onDelPod)
 
-	<-ctx.Done()
 }
 
 type PodTable struct {
-	db       *memory.Database
-	table    *memory.Table
-	informer cache.SharedIndexInformer
+	db     *memory.Database
+	table  *memory.Table
+	logger *logrus.Entry
 }
 
-func initPodTable(db *memory.Database, informer cache.SharedIndexInformer) {
-	if podTable != nil {
-		podLog.Warn("podTable name is empty")
-		return
+func initPodTable(db *memory.Database) {
+	if _, ok := tables[PodTableName]; !ok {
+		tables[PodTableName] = &PodTable{
+			db:     db,
+			table:  createPodTable(db),
+			logger: tableLogger(PodTableName),
+		}
 	}
-	podTable = &PodTable{
-		db:       db,
-		table:    createPodTable(db),
-		informer: informer,
-	}
+}
+
+func (t *PodTable) Log() *logrus.Entry {
+	return t.logger
 }
 
 func createPodTable(db *memory.Database) *memory.Table {
-	table := memory.NewTable(podTableName, sql.NewPrimaryKeySchema(sql.Schema{
-		{Name: "uid", Type: sql.Text, Nullable: false, Source: podTableName, PrimaryKey: true},
-		{Name: "name", Type: sql.Text, Nullable: false, Source: podTableName, PrimaryKey: true},
-		{Name: "namespace", Type: sql.Text, Nullable: false, Source: podTableName},
-		{Name: "application", Type: sql.Text, Nullable: false, Source: podTableName},
-		{Name: "deployment", Type: sql.Text, Nullable: false, Source: podTableName},
-		{Name: "node", Type: sql.Text, Nullable: false, Source: podTableName},
-		{Name: "ip", Type: sql.Text, Nullable: false, Source: podTableName},
-		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: podTableName},
+
+	table := memory.NewTable(PodTableName, sql.NewPrimaryKeySchema(sql.Schema{
+		{Name: "uid", Type: sql.Text, Nullable: false, Source: PodTableName, PrimaryKey: true},
+		{Name: "name", Type: sql.Text, Nullable: false, Source: PodTableName, PrimaryKey: true},
+		{Name: "namespace", Type: sql.Text, Nullable: false, Source: PodTableName},
+		{Name: "application", Type: sql.Text, Nullable: false, Source: PodTableName},
+		{Name: "deployment", Type: sql.Text, Nullable: false, Source: PodTableName},
+		{Name: "node", Type: sql.Text, Nullable: false, Source: PodTableName},
+		{Name: "ip", Type: sql.Text, Nullable: false, Source: PodTableName},
+		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: PodTableName},
 	}), db.GetForeignKeyCollection())
-	db.AddTable(podTableName, table)
-	podLog.Infof("table [%s] created", podTableName)
+
+	db.AddTable(PodTableName, table)
+	log.Infof("table [%s] created", PodTableName)
 	return table
 }
 
 func (t *PodTable) Drop(ctx *sql.Context) error {
-	return t.db.DropTable(ctx, podTableName)
+	return t.db.DropTable(ctx, PodTableName)
 }
 
-func (t *PodTable) Insert(ctx *sql.Context, pod *v1.Pod) error {
+func (t *PodTable) Insert(ctx *sql.Context, resource interface{}) error {
+	pod, ok := resource.(*v1.Pod)
+	if !ok {
+		return fmt.Errorf("unexpected type for resource, expected *v1.Pod but got %T", resource)
+	}
 	return t.table.Insert(ctx, podRow(pod))
 }
 
 func podRow(pod *v1.Pod) sql.Row {
 	name := pod.Name
 	tokens := strings.Split(name, "-")
-	deploymentName := strings.Join(tokens[:len(tokens)-2], "-")
+	deploymentName := ""
+	if len(tokens) >= 3 {
+		deploymentName = strings.Join(tokens[:len(tokens)-2], "-")
+	}
 
 	labels := pod.GetLabels()
 	app := labels["app"]
 
-	return sql.NewRow(string(pod.UID), pod.Name, pod.Namespace, app, deploymentName, pod.Spec.NodeName, pod.Status.PodIP, pod.CreationTimestamp.Time)
+	return sql.NewRow(string(pod.UID), pod.Name, pod.Namespace, app, deploymentName, pod.Spec.NodeName,
+		pod.Status.PodIP, pod.CreationTimestamp.Time)
 }
 
-func (t *PodTable) Delete(ctx *sql.Context, pod *v1.Pod) error {
+func (t *PodTable) Delete(ctx *sql.Context, resource interface{}) error {
+	pod, ok := resource.(*v1.Pod)
+	if !ok {
+		return fmt.Errorf("unexpected type for resource, expected *v1.Pod but got %T", resource)
+	}
 	deleter := t.table.Deleter(ctx)
 	defer deleter.Close(ctx)
 	return deleter.Delete(ctx, podRow(pod))
 }
 
-func (t *PodTable) Update(ctx *sql.Context, oldPod, newPod *v1.Pod) error {
+func (t *PodTable) Update(ctx *sql.Context, oldres interface{}, newres interface{}) error {
+	oldPod, ok := oldres.(*v1.Pod)
+	if !ok {
+		return fmt.Errorf("unexpected type for oldResource, expected *v1.Pod but got %T", oldres)
+	}
+	newPod, ok := newres.(*v1.Pod)
+	if !ok {
+		return fmt.Errorf("unexpected type for newResource, expected *v1.Pod but got %T", newres)
+	}
 	updater := t.table.Updater(ctx)
 	defer updater.Close(ctx)
 	return updater.Update(ctx, podRow(oldPod), podRow(newPod))
 }
 
 func onAddPod(o interface{}) {
+	t := table(PodTableName)
 	pod := o.(*v1.Pod)
-	podLog.Debugf("adding pod: %s\n", pod.Name)
+	t.Log().Debugf("adding pod: %s\n", pod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := podTable.Insert(ctx, pod); err != nil {
-		podLog.Error(err)
+	if err := t.Insert(ctx, pod); err != nil {
+		t.Log().Error(err)
 	}
 }
 
 func onDelPod(o interface{}) {
+	t := table(PodTableName)
 	pod := o.(*v1.Pod)
-	podLog.Debugf("deleting pod: %s\n", pod.Name)
+	t.Log().Debugf("deleting pod: %s\n", pod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := podTable.Delete(ctx, pod); err != nil {
-		podLog.Error(err)
+	if err := t.Delete(ctx, pod); err != nil {
+		t.Log().Error(err)
 	}
 }
 
 func onUpdatePod(oldObj interface{}, newObj interface{}) {
+	t := table(PodTableName)
 	oldPod := oldObj.(*v1.Pod)
 	newPod := newObj.(*v1.Pod)
-	podLog.Debugf("updating pod: %s\n", oldPod.Name)
+	t.Log().Debugf("updating pod: %s\n", oldPod.Name)
 	ctx := sql.NewEmptyContext()
-	if err := podTable.Update(ctx, oldPod, newPod); err != nil {
-		podLog.Error(err)
+	if err := t.Update(ctx, oldPod, newPod); err != nil {
+		t.Log().Error(err)
 	}
 }
