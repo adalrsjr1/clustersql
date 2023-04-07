@@ -81,7 +81,7 @@ func runInformers(ctx context.Context, db *memory.Database) {
 		{tb.PodTableName, tb.StartPodInformer},
 		// {tb.EndpointTableName, tb.StartEndpointInformer},
 		{tb.NodeTableName, tb.StartNodeInformer},
-		// {tb.ContainerTableName, tb.StartContainerInformer},
+		{tb.ContainerTableName, tb.StartContainerInformer},
 		// {tb.TrafficTableName, tb.StartTrafficInformer},
 	}
 
