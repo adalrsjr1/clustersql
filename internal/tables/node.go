@@ -29,7 +29,7 @@ type NodeTable struct {
 }
 
 func initNodeTable(db *memory.Database) {
-	if _, ok := tables[PodTableName]; !ok {
+	if _, ok := tables[NodeTableName]; !ok {
 		tables[NodeTableName] = &NodeTable{
 			db:     db,
 			table:  createNodetable(db),
@@ -62,7 +62,7 @@ func (t *NodeTable) Log() *logrus.Entry {
 }
 
 func (t *NodeTable) Drop(ctx *sql.Context) error {
-	return t.db.DropTable(ctx, PodTableName)
+	return t.db.DropTable(ctx, NodeTableName)
 }
 
 func (t *NodeTable) Insert(ctx *sql.Context, resource interface{}) error {

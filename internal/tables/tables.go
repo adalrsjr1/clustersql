@@ -56,7 +56,7 @@ func startResourceInformer(ctx context.Context, db *memory.Database,
 }
 
 func tableLogger(table string) *logrus.Entry {
-	return logrus.New().WithField("table", AffinityTableName)
+	return logrus.New().WithField("table", table)
 }
 
 var (
