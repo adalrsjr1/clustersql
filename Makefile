@@ -8,4 +8,4 @@ all: build
 
 build:
 	@echo "Building Docker image..."
-	@docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG) .
+	@docker build -t $(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG) -f build/Dockerfile .
