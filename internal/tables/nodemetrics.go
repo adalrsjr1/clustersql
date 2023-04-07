@@ -2,99 +2,66 @@ package tables
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
-	"github.com/adalrsjr1/sqlcluster/internal/services"
 	"github.com/dolthub/go-mysql-server/memory"
 	"github.com/dolthub/go-mysql-server/sql"
 	"github.com/sirupsen/logrus"
-	v1 "k8s.io/api/core/v1"
 
-	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/metrics/pkg/apis/metrics/v1beta1"
 )
 
-const nodeMetricsTableName = "Node_Metrics"
-
-var (
-	nodeMetricsTable *NodeMetricsTable
-	nodeMetricsLog   = logrus.WithFields(
-		logrus.Fields{
-			"table": nodeMetricsTableName,
-		},
-	)
-)
-
 func StartNodeMetricsInformer(ctx context.Context, db *memory.Database) {
-	watchList := cache.NewListWatchFromClient(services.ClientsetVS.MetricsV1beta1().RESTClient(),
-		"nodes", v1.NamespaceAll, fields.Everything())
-
-	_, informer := cache.NewInformer(
-		watchList,
-		&v1beta1.NodeMetrics{},
-		0,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc:    onAddNodeMetrics,
-			UpdateFunc: onUpdateNodeMetrics,
-			DeleteFunc: onDelNodeMetrics,
-		},
-	)
-
-	defer runtime.HandleCrash()
-
-	initNodeMetricsTable(db, informer)
-	go informer.Run(ctx.Done())
-	// start to sync and call list
-	if !cache.WaitForCacheSync(ctx.Done(), informer.HasSynced) {
-		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
-		return
-	}
-
-	<-ctx.Done()
+	startMetricsInformer(ctx, db, &v1beta1.NodeMetrics{}, "nodes", initNodeMetricsTable, onAddNodeMetrics, onUpdateNodeMetrics, onDelNodeMetrics)
 }
 
 type NodeMetricsTable struct {
-	db       *memory.Database
-	table    *memory.Table
-	informer cache.Controller
+	db     *memory.Database
+	table  *memory.Table
+	logger *logrus.Entry
 }
 
-func initNodeMetricsTable(db *memory.Database, informer cache.Controller) {
-	if nodeMetricsTable != nil {
-		nodeMetricsLog.Warn("table name is empty")
-		return
-	}
-	nodeMetricsTable = &NodeMetricsTable{
-		db:       db,
-		table:    createNodeMetricsTable(db),
-		informer: informer,
+func initNodeMetricsTable(db *memory.Database) {
+	if _, ok := tables[NodeMetricsTableName]; !ok {
+		tables[NodeMetricsTableName] = &NodeMetricsTable{
+			db:     db,
+			table:  createNodeMetricsTable(db),
+			logger: tableLogger(NodeMetricsTableName),
+		}
 	}
 
 }
 
 func createNodeMetricsTable(db *memory.Database) *memory.Table {
-	table := memory.NewTable(nodeMetricsTableName, sql.NewPrimaryKeySchema(sql.Schema{
-		{Name: "name", Type: sql.Text, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "namespace", Type: sql.Text, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "window", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "usage_memory", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "usage_cpu", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "usage_disk", Type: sql.Int64, Nullable: false, Source: nodeMetricsTableName},
-		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: nodeMetricsTableName},
+	table := memory.NewTable(NodeMetricsTableName, sql.NewPrimaryKeySchema(sql.Schema{
+		{Name: "name", Type: sql.Text, Nullable: false, Source: NodeMetricsTableName},
+		{Name: "namespace", Type: sql.Text, Nullable: false, Source: NodeMetricsTableName},
+		{Name: "window", Type: sql.Int64, Nullable: false, Source: NodeMetricsTableName},
+		{Name: "usage_memory", Type: sql.Int64, Nullable: false, Source: NodeMetricsTableName},
+		{Name: "usage_cpu", Type: sql.Int64, Nullable: false, Source: NodeMetricsTableName},
+		{Name: "usage_disk", Type: sql.Int64, Nullable: false, Source: NodeMetricsTableName},
+		{Name: "created_at", Type: sql.Datetime, Nullable: false, Source: NodeMetricsTableName},
 	}), db.GetForeignKeyCollection())
-	db.AddTable(nodeMetricsTableName, table)
-	nodeMetricsLog.Infof("table [%s] created", nodeMetricsTableName)
+
+	db.AddTable(NodeMetricsTableName, table)
+	log.Infof("table [%s] created", NodeMetricsTableName)
 	return table
 }
 
-func (t *NodeMetricsTable) Drop(ctx *sql.Context) error {
-	return t.db.DropTable(ctx, nodeMetricsTableName)
+func (t *NodeMetricsTable) Log() *logrus.Entry {
+	return t.logger
 }
 
-func (t *NodeMetricsTable) Insert(ctx *sql.Context, metrics *v1beta1.NodeMetrics) error {
+func (t *NodeMetricsTable) Drop(ctx *sql.Context) error {
+	return t.db.DropTable(ctx, NodeMetricsTableName)
+}
+
+func (t *NodeMetricsTable) Insert(ctx *sql.Context, resource interface{}) error {
+	metrics, ok := resource.(*v1beta1.NodeMetrics)
+	if !ok {
+		return errors.New("resource is not of type *v1beta1.NodeMetrics")
+	}
 	inserter := t.table.Inserter(ctx)
 	defer inserter.Close(ctx)
 
@@ -109,35 +76,50 @@ func nodeMetricsRow(metrics *v1beta1.NodeMetrics) sql.Row {
 		metrics.CreationTimestamp.Time)
 }
 
-func (t *NodeMetricsTable) Delete(ctx *sql.Context, metrics *v1beta1.NodeMetrics) error {
+func (t *NodeMetricsTable) Delete(ctx *sql.Context, resource interface{}) error {
+	metrics, ok := resource.(*v1beta1.NodeMetrics)
+	if !ok {
+		return errors.New("resource is not of type *v1beta1.NodeMetrics")
+	}
 	deleter := t.table.Deleter(ctx)
 	defer deleter.Close(ctx)
 
 	return deleter.Delete(ctx, nodeMetricsRow(metrics))
 }
 
-func (t *NodeMetricsTable) Update(ctx *sql.Context, oldNodeMetrics, newNodeMetrics *v1beta1.NodeMetrics) error {
+func (t *NodeMetricsTable) Update(ctx *sql.Context, oldres, newres interface{}) error {
+	oldMetrics, ok := oldres.(*v1beta1.NodeMetrics)
+	if !ok {
+		return errors.New("oldres is not of type *v1beta1.NodeMetrics")
+	}
+	newMetrics, ok := newres.(*v1beta1.NodeMetrics)
+	if !ok {
+		return errors.New("newres is not of type *v1beta1.NodeMetrics")
+	}
+
 	updater := t.table.Updater(ctx)
 	defer updater.Close(ctx)
 
-	return updater.Update(ctx, nodeMetricsRow(oldNodeMetrics), nodeMetricsRow(newNodeMetrics))
+	return updater.Update(ctx, nodeMetricsRow(oldMetrics), nodeMetricsRow(newMetrics))
 }
 
 func onAddNodeMetrics(o interface{}) {
+	t := table(NodeMetricsTableName)
 	metrics := o.(*v1beta1.NodeMetrics)
-	nodeMetricsLog.Debugf("adding pod: %s\n", metrics.Name)
+	t.Log().Debugf("adding pod: %s\n", metrics.Name)
 	ctx := sql.NewEmptyContext()
-	if err := nodeMetricsTable.Insert(ctx, metrics); err != nil {
-		nodeMetricsLog.Error(err)
+	if err := t.Insert(ctx, metrics); err != nil {
+		t.Log().Error(err)
 	}
 }
 
 func onDelNodeMetrics(o interface{}) {
+	t := table(NodeMetricsTableName)
 	handleMetrics := func(metrics *v1beta1.NodeMetrics) {
-		nodeMetricsLog.Debugf("deleting pod: %s\n", metrics.Name)
+		t.Log().Debugf("deleting pod: %s\n", metrics.Name)
 		ctx := sql.NewEmptyContext()
-		if err := nodeMetricsTable.Delete(ctx, metrics); err != nil {
-			nodeMetricsLog.Error(err)
+		if err := t.Delete(ctx, metrics); err != nil {
+			t.Log().Error(err)
 		}
 	}
 
@@ -150,16 +132,17 @@ func onDelNodeMetrics(o interface{}) {
 		metrics := deletedFinalStateUnknown.Obj.(*v1beta1.NodeMetrics)
 		handleMetrics(metrics)
 	default:
-		nodeMetricsLog.Error("cannot handle deleted object of type %T", v)
+		t.Log().Error("cannot handle deleted object of type %T", v)
 	}
 }
 
 func onUpdateNodeMetrics(oldObj interface{}, newObj interface{}) {
+	t := table(NodeMetricsTableName)
 	oldMetrics := oldObj.(*v1beta1.NodeMetrics)
 	newMetrics := newObj.(*v1beta1.NodeMetrics)
-	nodeMetricsLog.Debugf("updating pod: %s\n", oldMetrics.Name)
+	t.Log().Debugf("updating pod: %s\n", oldMetrics.Name)
 	ctx := sql.NewEmptyContext()
-	if err := nodeMetricsTable.Update(ctx, oldMetrics, newMetrics); err != nil {
-		nodeMetricsLog.Error(err)
+	if err := t.Update(ctx, oldMetrics, newMetrics); err != nil {
+		t.Log().Error(err)
 	}
 }
